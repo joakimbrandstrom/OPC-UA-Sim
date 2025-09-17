@@ -6,10 +6,14 @@ on:
       - main
       - master
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
   packages: write
+
+env:
+  REGISTRY: ghcr.io
 
 jobs:
   test:
@@ -39,14 +43,13 @@ jobs:
         run: python -m unittest discover
 
   docker-build:
-    if: github.event_name == 'push'
-    runs-on: ubuntu-latest
+    name: Build and push Docker image
     needs: test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
     permissions:
       contents: read
       packages: write
-    env:
-      REGISTRY: ghcr.io
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -61,17 +64,19 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Prepare image metadata
-        run: |
-          IMAGE_NAME="${REGISTRY}/${GITHUB_REPOSITORY,,}"
-          echo "IMAGE_NAME=${IMAGE_NAME}" >> "$GITHUB_ENV"
-          echo "IMAGE_TAG=${GITHUB_SHA}" >> "$GITHUB_ENV"
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository }}
+          tags: |
+            type=raw,value=latest
+            type=sha
 
-      - name: Build Docker image
+      - name: Build and push image
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
-          tags: |
-            ${{ env.IMAGE_NAME }}:latest
-            ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
