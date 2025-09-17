@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>OPC UA CSV Simulator</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/modern-normalize/2.0.0/modern-normalize.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  </head>
+  <body>
+    <main class="container">
+      <header>
+        <h1>OPC UA CSV Simulator</h1>
+        <p class="lead">Upload CSV files and expose their values via OPC UA for testing clients.</p>
+      </header>
+
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          <ul class="flash-messages">
+            {% for category, message in messages %}
+              <li class="flash {{ category }}">{{ message }}</li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+      {% endwith %}
+
+      <section class="card">
+        <h2>Upload a new CSV dataset</h2>
+        <form action="{{ url_for('upload_file') }}" method="post" enctype="multipart/form-data">
+          <label for="file">Choose a CSV file</label>
+          <input type="file" id="file" name="file" accept=".csv" required>
+          <button type="submit">Upload and activate</button>
+        </form>
+      </section>
+
+      <section class="card">
+        <h2>Available datasets</h2>
+        {% if datasets %}
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Last modified</th>
+                <th>Size (KB)</th>
+                <th>Status</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for dataset in datasets %}
+                <tr class="{% if dataset.is_active %}active{% endif %}">
+                  <td>{{ dataset.name }}</td>
+                  <td>{{ dataset.modified.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                  <td>{{ '%.1f'|format(dataset.size / 1024) }}</td>
+                  <td>{% if dataset.is_active %}Active{% else %}Available{% endif %}</td>
+                  <td>
+                    {% if not dataset.is_active %}
+                      <form action="{{ url_for('activate_dataset', filename=dataset.name) }}" method="post">
+                        <button type="submit">Activate</button>
+                      </form>
+                    {% else %}
+                      <span class="badge">In use</span>
+                    {% endif %}
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <p>No datasets found yet. Upload a CSV file to get started.</p>
+        {% endif %}
+      </section>
+
+      {% if preview_columns %}
+        <section class="card">
+          <h2>Active dataset preview</h2>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  {% for column in preview_columns %}
+                    <th>{{ column }}</th>
+                  {% endfor %}
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in preview_rows %}
+                  <tr>
+                    {% for column in preview_columns %}
+                      <td>{{ row[column] }}</td>
+                    {% endfor %}
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      {% endif %}
+    </main>
+  </body>
+</html>

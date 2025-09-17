@@ -1,0 +1,4 @@
+Flask>=2.3
+pandas>=2.0
+opcua>=0.98
+waitress>=2.1
