@@ -44,8 +44,8 @@ jobs:
 
   docker-build:
     name: Build and push Docker image
-    needs: test
     runs-on: ubuntu-latest
+    needs: test
     if: github.event_name == 'push'
     permissions:
       contents: read
