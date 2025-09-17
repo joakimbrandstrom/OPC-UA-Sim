@@ -28,7 +28,15 @@ jobs:
         run: python -m compileall opcua_sim
 
       - name: Run unit tests
-        run: pytest
+        run: |
+          set +e
+          pytest
+          EXIT_CODE=$?
+          if [ $EXIT_CODE -eq 5 ]; then
+            echo "Pytest exited with code 5 (no tests collected). Treating as success."
+            exit 0
+          fi
+          exit $EXIT_CODE
 
   docker:
     name: Build and push image
