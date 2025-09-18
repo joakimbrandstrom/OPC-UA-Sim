@@ -49,7 +49,6 @@ jobs:
     env:
       DEPLOY_IMAGE: ghcr.io/joakimbrandstrom/opc-ua-sim:c8d364d7586ed1373ab552ed07af13322709e96e
       K8S_NAMESPACE: my-namespace
-      K8S_SERVICE_ACCOUNT: my-service-account
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -84,19 +83,25 @@ jobs:
             --docker-password="${{ secrets.GITHUB_TOKEN }}" \
             --namespace="$K8S_NAMESPACE"
 
-      - name: Ensure service account exists and has pull secret
+      - name: Wait for default service account
         run: |
-          kubectl get serviceaccount "$K8S_SERVICE_ACCOUNT" --namespace="$K8S_NAMESPACE" >/dev/null 2>&1 || \
-            kubectl create serviceaccount "$K8S_SERVICE_ACCOUNT" --namespace="$K8S_NAMESPACE"
-          kubectl patch serviceaccount "$K8S_SERVICE_ACCOUNT" \
+          for attempt in {1..30}; do
+            if kubectl get serviceaccount default --namespace="$K8S_NAMESPACE" >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Default service account not available in namespace $K8S_NAMESPACE" >&2
+          exit 1
+
+      - name: Attach pull secret to default service account
+        run: |
+          kubectl patch serviceaccount default \
             --namespace="$K8S_NAMESPACE" \
             -p='{"imagePullSecrets": [{"name": "ghcr-credentials"}]}'
 
       - name: Apply Kubernetes manifests
         run: kubectl apply -f k8s/deployment.yaml --namespace="$K8S_NAMESPACE"
-
-      - name: Set service account on deployment
-        run: kubectl set serviceaccount deployment/opc-ua-sim "$K8S_SERVICE_ACCOUNT" --namespace="$K8S_NAMESPACE"
 
       - name: Wait for rollout
         run: kubectl rollout status deployment/opc-ua-sim --namespace="$K8S_NAMESPACE" --timeout=180s
