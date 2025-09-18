@@ -42,10 +42,107 @@ jobs:
           fi
           exit $EXIT_CODE
 
+  verify-k8s:
+    name: Verify Kubernetes deployment
+    runs-on: ubuntu-latest
+    needs: tests
+    env:
+      DEPLOY_IMAGE: ghcr.io/joakimbrandstrom/opc-ua-sim:c8d364d7586ed1373ab552ed07af13322709e96e
+      K8S_NAMESPACE: my-namespace
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Create KinD cluster
+        uses: helm/kind-action@v1.8.0
+        with:
+          cluster_name: opc-ua-sim-ci
+          wait: 120s
+
+      - name: Ensure namespace exists
+        run: |
+          kubectl get namespace "$K8S_NAMESPACE" >/dev/null 2>&1 || \
+            kubectl create namespace "$K8S_NAMESPACE"
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pre-pull deployment image
+        run: docker pull "$DEPLOY_IMAGE"
+
+      - name: Create registry pull secret
+        run: |
+          kubectl delete secret ghcr-credentials --namespace="$K8S_NAMESPACE" --ignore-not-found
+          kubectl create secret docker-registry ghcr-credentials \
+            --docker-server=ghcr.io \
+            --docker-username="${{ github.actor }}" \
+            --docker-password="${{ secrets.GITHUB_TOKEN }}" \
+            --namespace="$K8S_NAMESPACE"
+
+      - name: Wait for default service account
+        run: |
+          for attempt in {1..30}; do
+            if kubectl get serviceaccount default --namespace="$K8S_NAMESPACE" >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Default service account not available in namespace $K8S_NAMESPACE" >&2
+          exit 1
+
+      - name: Attach pull secret to default service account
+        run: |
+          kubectl patch serviceaccount default \
+            --namespace="$K8S_NAMESPACE" \
+            -p='{"imagePullSecrets": [{"name": "ghcr-credentials"}]}'
+
+      - name: Apply Kubernetes manifests
+        run: kubectl apply -f k8s/deployment.yaml --namespace="$K8S_NAMESPACE"
+
+      - name: Wait for rollout
+        run: kubectl rollout status deployment/opc-ua-sim --namespace="$K8S_NAMESPACE" --timeout=180s
+
+      - name: Smoke test web UI
+        shell: bash
+        run: |
+          set -euo pipefail
+          kubectl wait --for=condition=Ready pod -l app=opc-ua-sim --namespace="$K8S_NAMESPACE" --timeout=120s
+          kubectl port-forward deployment/opc-ua-sim --namespace="$K8S_NAMESPACE" 8000:8000 >/tmp/pf.log 2>&1 &
+          PF_PID=$!
+          cleanup() { kill $PF_PID 2>/dev/null || true; }
+          trap cleanup EXIT
+          for attempt in {1..5}; do
+            if curl -fsS http://127.0.0.1:8000/ >/tmp/curl.log; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Failed to reach web UI" >&2
+          exit 1
+
+      - name: Dump pod logs on failure
+        if: ${{ failure() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          kubectl get pods --namespace="$K8S_NAMESPACE" -o wide
+          POD=$(kubectl get pods -l app=opc-ua-sim --namespace="$K8S_NAMESPACE" -o jsonpath='{.items[0].metadata.name}')
+          if [[ -n "$POD" ]]; then
+            kubectl logs "$POD" --namespace="$K8S_NAMESPACE"
+          else
+            echo "No pods found for app=opc-ua-sim" >&2
+          fi
+
   docker:
     name: Build and push image
     runs-on: ubuntu-latest
-    needs: tests
+    needs:
+      - tests
+      - verify-k8s
     if: >-
       needs.tests.result == 'success' &&
       (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
@@ -72,6 +169,7 @@ jobs:
 
       - name: Prepare image tags
         run: |
+          : "${IMAGE_NAME:?IMAGE_NAME not set}"
           echo "LATEST_TAG=${IMAGE_NAME}:latest" >> "$GITHUB_ENV"
           echo "SHA_TAG=${IMAGE_NAME}:${GITHUB_SHA}" >> "$GITHUB_ENV"
 

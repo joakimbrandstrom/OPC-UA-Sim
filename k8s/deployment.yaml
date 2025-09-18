@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opc-ua-sim
+  labels:
+    app: opc-ua-sim
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: opc-ua-sim
+  template:
+    metadata:
+      labels:
+        app: opc-ua-sim
+    spec:
+      containers:
+        - name: opc-ua-sim
+          image: ghcr.io/joakimbrandstrom/opc-ua-sim:c8d364d7586ed1373ab552ed07af13322709e96e
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+            - name: opcua
+              containerPort: 4840
+          env:
+            - name: WEB_HOST
+              value: "0.0.0.0"
+            - name: WEB_PORT
+              value: "8000"
+            - name: OPCUA_ENDPOINT
+              value: "opc.tcp://0.0.0.0:4840/"
+            - name: LOG_LEVEL
+              value: "INFO"
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          volumeMounts:
+            - name: data-files
+              mountPath: /app/data
+      volumes:
+        - name: data-files
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: opc-ua-sim
+  labels:
+    app: opc-ua-sim
+spec:
+  selector:
+    app: opc-ua-sim
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+    - name: opcua
+      port: 4840
+      targetPort: opcua

@@ -15,6 +15,9 @@ from .opcua_server import OPCUASimulator
 
 _LOGGER = logging.getLogger(__name__)
 
+_PACKAGE_ROOT = Path(__file__).resolve().parent
+_PROJECT_ROOT = _PACKAGE_ROOT.parent
+
 
 def create_app(
     data_manager: CSVDataManager,
@@ -24,7 +27,11 @@ def create_app(
 ) -> Flask:
     """Create and configure the Flask application."""
 
-    app = Flask(__name__)
+    app = Flask(
+        __name__,
+        template_folder=str(_PROJECT_ROOT / "templates"),
+        static_folder=str(_PROJECT_ROOT / "static"),
+    )
     app.config["SECRET_KEY"] = secret_key or config.DEFAULT_SECRET_KEY
     app.config["MAX_CONTENT_LENGTH"] = 32 * 1024 * 1024  # 32 MB uploads
 
